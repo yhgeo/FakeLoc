@@ -8,6 +8,16 @@
 
 ### 更新日志
 
+**v1.5.0 —— 阻断网络定位**
+
+- **修复「位置被拉回真实坐标」**。腾讯 / 高德 / 百度的定位 SDK 除了读系统位置，
+  还会把扫到的 **WiFi BSSID 列表 + 基站信息** 上报自家服务端算坐标 ——
+  这条路径**完全绕过 Android 的 LocationManager**，所以在 system_server 里
+  怎么伪造 `Location` 都没用。
+  新增 `NetworkPosHook`（只装目标应用进程）：清空 WiFi 扫描结果、
+  打码 BSSID/SSID、清空基站信息，服务端拿不到指纹就只能退回系统定位。
+  新增配置项 `blockNetworkPos`（默认开）。
+
 **v1.4.2**
 
 - **修复地图拖动方向反了**。`GestureDetector.onScroll` 给的 `dx/dy` 是"手指向左/向上为正"，
@@ -158,14 +168,22 @@ Magisk 模块**不负责 hook**，它只做三件事：
 | 层 | 目标进程 | 拦截内容 | 文件 |
 |----|----------|----------|------|
 | 应用层 | 任意被作用域覆盖的应用 | `LocationManager` 的同步查询 / 异步回调 / provider 状态 | `xposed/hooks/LocationManagerHook.kt` |
+| 网络定位层 | 任意被作用域覆盖的应用 | `WifiManager` / `WifiInfo` / `TelephonyManager` —— 掐断 WiFi/基站指纹上报 | `xposed/hooks/NetworkPosHook.kt` |
 | 系统层 | `system_server` | `LocationProviderManager` / `MockableLocationProvider` / `GnssLocationProvider` / `LocationManagerService` | `xposed/hooks/SystemServerHook.kt` |
 | 融合层 | 任意进程（有 GMS 时） | `com.google.android.gms.location.LocationResult` | `xposed/hooks/FusedLocationHook.kt` |
+
+**网络定位层**解决的是一个很容易被忽略的问题：腾讯 / 高德 / 百度的 SDK
+拿位置有两条路，除了读 `LocationManager`，还会把 **WiFi BSSID 列表 + 基站信息**
+上报自家服务端算坐标。第二条**完全绕过 Android 定位框架**，系统层怎么伪造都没用，
+表现就是"位置被拉回真实坐标"。这一层把指纹源掐掉，逼 SDK 退回系统定位。
 
 **应用层**覆盖面最广：只要 App 通过 `LocationManager` 取位置（绝大多数 App 都是），
 都会被 `requestLocationUpdates` 的 listener 包装、`getLastKnownLocation` 的返回值替换拦下来。
 包装后的 listener 与原始对象做了双向映射，保证 `removeUpdates(原始listener)` 仍然有效。
 另外还会把 `isProviderEnabled` / `isLocationEnabled` / `hasProvider` / `getProviders`
 统一改写成"GPS 开着"——很多 App 在发起定位前会先查这个开关，查到关就直接不请求了。
+被包装的 listener 还挂了一个**补发定时器**：真实 provider 一直不报位置时（比如室内没星），
+由我们主动按请求间隔推伪造位置，避免应用认为"定位失败"。
 
 **系统层**做版本容错：AOSP 的定位模块在 Android 12/13/14 之间改过多轮
 （类从 `com.android.server.location.*` 搬到 `provider.*` 子包、GNSS 搬到 `gnss.*` 子包、
