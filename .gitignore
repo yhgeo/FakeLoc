@@ -1,0 +1,29 @@
+# 构建产物
+build/
+*/build/
+.cxx/
+.externalNativeBuild/
+.gradle/
+.kotlin/
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# 本地环境（每台机器自己生成，不入库）
+local.properties
+.idea/
+*.iml
+.vscode/
+
+# AI 工作区（含本地调试笔记，可能记录了签名口令等本机信息）
+.workbuddy-ai/
+
+# 签名密钥：绝对不要提交
+*.jks
+*.keystore
+
+# 系统
+.DS_Store
+Thumbs.db

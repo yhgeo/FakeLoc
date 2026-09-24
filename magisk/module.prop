@@ -1,0 +1,6 @@
+id=fakeloc
+name=FakeLoc Root Helper
+version=1.0.0
+versionCode=1
+author=Mo
+description=为 FakeLoc 提供 root 辅助：创建配置备份目录、修正 prefs 可读权限、开机自愈。虚拟定位 hook 本身由 LSPosed 模块负责（请勿关闭 LSPosed）。

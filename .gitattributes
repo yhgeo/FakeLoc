@@ -1,0 +1,14 @@
+# 统一换行符：shell / gradlew 必须保持 LF，否则在 Linux/macOS 上跑不起来
+* text=auto eol=lf
+
+*.sh        text eol=lf
+gradlew     text eol=lf
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# 二进制，别动
+*.jar       binary
+*.jks       binary
+*.apk       binary
+*.png       binary
+*.webp      binary

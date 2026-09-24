@@ -1,0 +1,21 @@
+## ==========================================================================
+##  本地环境配置 —— 不要提交到版本库（已在 .gitignore 中）
+##  复制本文件为 local.properties 后按自己机器修改。
+## ==========================================================================
+
+## Android SDK 位置（指向外部工具链，不在源码树内）
+sdk.dir=D\:\\Android\\toolchain\\sdk
+
+## 可选：Gradle 缓存目录。不填则用默认 ~/.gradle；
+## 复用外部工具链缓存可以避免重复下载依赖。
+## GRADLE_USER_HOME=D\:\\Android\\toolchain\\gradle-home
+
+## --------------------------------------------------------------------------
+##  发布签名（自签名即可；Xposed 模块不要求特定签名）
+##  留空 / 文件不存在时，release 会自动降级使用 debug 签名。
+##  下面是占位符 —— 换成你自己 keytool 生成的密钥与口令。
+## --------------------------------------------------------------------------
+fakeloc.storeFile=D\:\\path\\to\\your\\release.jks
+fakeloc.storePassword=CHANGE_ME
+fakeloc.keyAlias=CHANGE_ME
+fakeloc.keyPassword=CHANGE_ME

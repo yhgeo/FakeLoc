@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LSPosed 默认勾选的作用域。用户后续可在模块管理里自行增删。 -->
+    <string-array name="xposed_scope">
+        <item>android</item>
+        <item>com.android.location.fused</item>
+        <item>com.google.android.gms</item>
+    </string-array>
+</resources>

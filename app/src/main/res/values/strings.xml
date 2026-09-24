@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FakeLoc</string>
+    <string name="xposed_description">LSPosed 虚拟定位模块 · 支持系统级位置伪造与反检测</string>
+</resources>
