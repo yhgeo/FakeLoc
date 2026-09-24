@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.mo.fakeloc.data.ConfigStore
+import com.mo.fakeloc.service.FakeLocationService
 import com.mo.fakeloc.ui.MainScreen
 import com.mo.fakeloc.ui.theme.FakeLocTheme
 
@@ -24,6 +26,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestRuntimePermissions()
+
+        // 上次是开启状态的话，进 App 就把前台服务恢复起来。
+        // 路线模拟靠这个服务每秒推进位置，而它不会自己跨重启存活 ——
+        // 不恢复的话，重启后位置会定在路线起点不动。
+        runCatching {
+            if (ConfigStore.load(this).enabled) FakeLocationService.start(this)
+        }
+
         setContent {
             FakeLocTheme {
                 Surface(

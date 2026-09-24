@@ -102,8 +102,36 @@ object RootHelper {
         if (!RootShell.hasRoot()) return false
         // JSON 里不会有单引号，但保险起见还是清掉，避免拼 shell 时被截断
         val safe = json.replace("'", "")
-        return RootShell.exec("settings put global fakeloc_cfg '$safe'", 10).ok
+        return RootShell.execFast("settings put global fakeloc_cfg '$safe'")
     }
+
+    /**
+     * 把当前配置**实时**推到世界可读副本。
+     *
+     * 这是 hook 侧（跑在目标应用进程里）拿到**实时坐标**的关键：
+     * 系统层每秒都在更新位置，但目标进程只能通过这个文件（或 Settings 中继）拿到配置。
+     * 如果这个文件只在用户操作时写一次，应用侧看到的就是"一根木桩"——
+     * 位置定在路线起点，永远不动。
+     *
+     * 走常驻 shell，所以每秒调用一次的开销可以忽略。
+     */
+    fun pushLiveConfig(json: String): Boolean {
+        if (!RootShell.hasRoot()) return false
+        val safe = json.replace("'", "")
+        // 第一次（或 App 进程重启后）先把目录和权限摆好，之后只写内容
+        val cmd = if (publicReady) {
+            "echo '$safe' > $PUBLIC_CONFIG"
+        } else {
+            "mkdir -p $PUBLIC_DIR && chmod 0711 $PUBLIC_DIR" +
+                " && echo '$safe' > $PUBLIC_CONFIG && chmod 0644 $PUBLIC_CONFIG"
+        }
+        val ok = RootShell.execFast(cmd)
+        if (ok) publicReady = true
+        return ok
+    }
+
+    @Volatile
+    private var publicReady = false
 
     /** 一键把备份配置恢复到 App。 */
     fun restoreInto(ctx: Context): Boolean {

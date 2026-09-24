@@ -31,8 +31,8 @@ android {
         applicationId = "com.mo.fakeloc"
         minSdk = 29          // LSPosed 1.9.2 支持范围；Android 10+
         targetSdk = 34       // Android 14
-        versionCode = 11
-        versionName = "1.5.0"
+        versionCode = 14
+        versionName = "1.5.3"
 
         // Xposed 模块标识（LSPosed 读取，用于在模块列表里显示）
         buildConfigField("String", "XPOSED_DESC", "\"LSPosed 虚拟定位模块\"")

@@ -15,6 +15,7 @@ import com.mo.fakeloc.xposed.HookLog
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executor
 import java.util.function.Consumer
 
@@ -48,7 +49,19 @@ object LocationManagerHook {
     /** 包装后 listener -> 位置补发定时器 */
     private val pumps = ConcurrentHashMap<Any, Pump>()
 
+    /**
+     * 记录顺序，用于淘汰最旧的映射。
+     *
+     * 这三张表原本只增不减：应用反复注册监听器（很多 SDK 会这么做）时，
+     * map 会无界增长，而且每个 pump 都是一个永不停止的每秒定时器。
+     * 长时间跑下来既是内存泄漏也是耗电源。加个上限，超了就淘汰最旧的。
+     */
+    private val order = ConcurrentLinkedQueue<Any>()
+
     private const val LOG_TAG = "LM"
+
+    /** 同时跟踪的监听器上限。 */
+    private const val MAX_TRACKED_LISTENERS = 64
 
     /** 补发间隔的上下限（毫秒）。 */
     private const val MIN_PUMP_MS = 1000L
@@ -252,8 +265,21 @@ object LocationManagerHook {
 
         forward[original] = proxy
         backward[proxy] = original
+        order.add(proxy)
+        evictOldestIfNeeded()
         startPump(proxy, original, looper, minTimeMs)
         return proxy
+    }
+
+    /** 超出上限就淘汰最旧的一条（同时停掉它的补发定时器）。 */
+    private fun evictOldestIfNeeded() {
+        var guard = 0
+        while (order.size > MAX_TRACKED_LISTENERS && guard++ < MAX_TRACKED_LISTENERS) {
+            val oldest = order.poll() ?: break
+            stopPump(oldest)
+            val original = backward.remove(oldest)
+            if (original != null) forward.remove(original)
+        }
     }
 
     // ------------------------------------------------------------------ 位置补发
@@ -299,6 +325,7 @@ object LocationManagerHook {
     }
 
     private fun stopPump(proxy: Any) {
+        order.remove(proxy)
         pumps.remove(proxy)?.let { p ->
             try {
                 p.handler.removeCallbacks(p.runnable)

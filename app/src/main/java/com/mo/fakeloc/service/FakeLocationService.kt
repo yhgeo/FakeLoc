@@ -23,6 +23,8 @@ import com.mo.fakeloc.R
 import com.mo.fakeloc.data.ConfigStore
 import com.mo.fakeloc.data.LocConfig
 import com.mo.fakeloc.root.RootHelper
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 常驻前台服务：整条链路的"大脑"。
@@ -42,6 +44,15 @@ class FakeLocationService : Service() {
     private var travelledMeters = 0.0
     private var testProviderReady = false
     private var tickCount = 0
+
+    /** root 推送专用单线程：常驻 shell 是阻塞的，不能占用主线程。 */
+    private val rootExec = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "fakeloc-root-push").apply { isDaemon = true }
+    }
+    private val pushInFlight = AtomicBoolean(false)
+
+    /** 上一次发布到 Settings.Global 中继的时间（节流用）。 */
+    private var lastRelayAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -64,6 +75,7 @@ class FakeLocationService : Service() {
     override fun onDestroy() {
         stopTicking()
         teardownTestProvider()
+        runCatching { rootExec.shutdownNow() }
         super.onDestroy()
     }
 
@@ -159,9 +171,38 @@ class FakeLocationService : Service() {
             publishMockLocation(cfg)
         }
 
+        // ---- 把实时配置推给 hook 侧 ----
+        // 关键：目标应用进程只能通过 /data/local/tmp 的副本或 Settings 中继拿配置。
+        // 不推的话它们会一直停在路线起点 —— 表现就是"位置对但单点不动"。
+        pushConfigToHook(cfg)
+
         // ---- 通知节流更新 ----
         if (tickCount % 3 == 0) {
             notify(buildNotification(cfg))
+        }
+    }
+
+    /**
+     * 把当前配置推到 hook 能读到的位置。
+     *
+     *  - 文件副本：每秒推（走常驻 root shell，开销可忽略）
+     *  - Settings.Global 中继：每 5 秒推（写 settings 数据库较重，没必要那么勤）
+     */
+    private fun pushConfigToHook(cfg: LocConfig) {
+        val now = System.currentTimeMillis()
+        val pushRelay = now - lastRelayAt >= 5_000L
+        if (pushRelay) lastRelayAt = now
+
+        if (!pushInFlight.compareAndSet(false, true)) return
+        val json = cfg.toJson()
+        rootExec.execute {
+            try {
+                RootHelper.pushLiveConfig(json)
+                if (pushRelay) RootHelper.publishRelay(json)
+            } catch (_: Throwable) {
+            } finally {
+                pushInFlight.set(false)
+            }
         }
     }
 

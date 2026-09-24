@@ -212,22 +212,22 @@ object ConfigBridge {
             if (json != null) activeChannel = "provider"
         }
 
-        // 通道 2：Settings.Global 中继 —— 任意进程都能读，且不受可见性限制
-        if (json == null && ctx != null) {
-            json = settingsRelayFetch(ctx)
-            if (json != null) activeChannel = "settings-relay"
+        // 通道 2/3：两个"本地副本"通道。
+        // 它们刷新频率不同（文件每秒、Settings 中继每 5 秒），所以**不能按固定顺序取**，
+        // 要按配置里的 seq 挑更新的那个 —— 否则可能拿到一份更旧的位置，
+        // 表现就是"位置对但单点不动"。
+        if (json == null) {
+            val fileJson = readConfigFiles()
+            val relayJson = if (ctx != null) settingsRelayFetch(ctx) else null
+            val picked = fresherOf(fileJson, relayJson)
+            json = picked.first
+            if (json != null) activeChannel = picked.second
         }
 
-        // 通道 3：XSharedPreferences
+        // 通道 4：XSharedPreferences
         if (json == null) {
             json = readXPrefs()
             if (json != null) activeChannel = "xprefs"
-        }
-
-        // 通道 4：直读文件（root 写出来的世界可读副本）
-        if (json == null) {
-            json = readConfigFiles()
-            if (json != null) activeChannel = "file"
         }
 
         if (json == null) {
@@ -244,6 +244,16 @@ object ConfigBridge {
             writeDiag(ctx, json)
         }
         return json
+    }
+
+    /** 两份配置里挑 seq 更大的（更实时的那份）。 */
+    private fun fresherOf(fileJson: String?, relayJson: String?): Pair<String?, String> {
+        if (fileJson == null && relayJson == null) return null to "none"
+        if (fileJson == null) return relayJson to "settings-relay"
+        if (relayJson == null) return fileJson to "file"
+        val seqFile = LocConfig.fromJson(fileJson)?.seq ?: 0L
+        val seqRelay = LocConfig.fromJson(relayJson)?.seq ?: 0L
+        return if (seqFile >= seqRelay) fileJson to "file" else relayJson to "settings-relay"
     }
 
     /** 通道 1：ContentProvider。 */
