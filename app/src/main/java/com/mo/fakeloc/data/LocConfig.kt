@@ -42,6 +42,18 @@ data class LocConfig(
     /** 上报的可见卫星数（GNSS extras）。 */
     var satelliteCount: Int = 24,
 
+    /**
+     * 阻断"网络定位"（WiFi / 基站上报服务端算位置）。
+     *
+     * 腾讯、高德、百度这些定位 SDK 除了读系统位置，还会把扫到的 **WiFi BSSID 列表 +
+     * 基站信息** 上报自己的服务器，由服务端算出坐标 —— 这条路径**完全绕过 Android 的
+     * LocationManager**，所以在系统层伪造位置对它们无效，表现为"位置被拉回真实坐标"。
+     *
+     * 打开后会在目标进程里把 WiFi 扫描结果清空、BSSID/SSID 打码、基站信息清空，
+     * 让服务端拿不到可用指纹，SDK 只能退回系统定位（也就是我们伪造的那个）。
+     */
+    var blockNetworkPos: Boolean = true,
+
     /** 作用域白名单：仅当为空或开关关闭时对所有已注入进程生效。 */
     var scopeWhitelistEnabled: Boolean = false,
     var scopePackages: List<String> = emptyList(),
@@ -80,6 +92,7 @@ data class LocConfig(
         o.put("jitter", jitterEnabled)
         o.put("jitterM", jitterMeters)
         o.put("sats", satelliteCount)
+        o.put("blockNetPos", blockNetworkPos)
         o.put("wlEnabled", scopeWhitelistEnabled)
         o.put("seq", seq)
         val arr = JSONArray()
@@ -115,6 +128,7 @@ data class LocConfig(
                     jitterEnabled = o.optBoolean("jitter", true),
                     jitterMeters = o.optDouble("jitterM", 2.0),
                     satelliteCount = o.optInt("sats", 24),
+                    blockNetworkPos = o.optBoolean("blockNetPos", true),
                     scopeWhitelistEnabled = o.optBoolean("wlEnabled", false),
                     scopePackages = wl,
                     seq = o.optLong("seq", 0L)

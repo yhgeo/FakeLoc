@@ -534,6 +534,14 @@ fun MainScreen(openMapOnStart: Boolean = false) {
                 )
 
                 SwitchRow(
+                    title = "阻断网络定位（WiFi / 基站）",
+                    desc = "腾讯/高德/百度的 SDK 会把 WiFi BSSID + 基站指纹上报服务端算位置，" +
+                        "这条路径绕过系统定位，不掐掉会出现「位置被拉回真实坐标」",
+                    checked = cfg.blockNetworkPos,
+                    onChange = { persist(cfg.copy(blockNetworkPos = it)) }
+                )
+
+                SwitchRow(
                     title = "启用作用域白名单",
                     desc = "只对选定应用生效；系统进程恒定放行",
                     checked = cfg.scopeWhitelistEnabled,

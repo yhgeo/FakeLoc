@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import com.mo.fakeloc.xposed.hooks.FusedLocationHook
 import com.mo.fakeloc.xposed.hooks.LocationManagerHook
+import com.mo.fakeloc.xposed.hooks.NetworkPosHook
 import com.mo.fakeloc.xposed.hooks.SystemServerHook
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.IXposedHookZygoteInit
@@ -73,7 +74,13 @@ class XposedEntry : IXposedHookLoadPackage, IXposedHookZygoteInit {
             } else {
                 val n = LocationManagerHook.install(cl)
                 ConfigBridge.markHook("LM:$n")
-                HookLog.i(">>> hooked pkg=$pkg process=$process hooks=$n")
+
+                // 阻断网络定位（WiFi / 基站指纹上报）—— 只在应用进程里装，
+                // 不碰 system_server，免得把用户自己的 WiFi 列表也清空
+                val nn = NetworkPosHook.install(cl)
+                if (nn > 0) ConfigBridge.markHook("NetPos:$nn")
+
+                HookLog.i(">>> hooked pkg=$pkg process=$process hooks=$n netpos=$nn")
             }
 
             // 3) GMS 融合定位：类不存在会自动跳过
