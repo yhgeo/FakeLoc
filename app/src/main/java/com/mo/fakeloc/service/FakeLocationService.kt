@@ -162,9 +162,18 @@ class FakeLocationService : Service() {
         }
         tickCount++
 
-        // ---- 路线推进 ----
+        // ---- 模拟模式：路线优先于坐标 ----
+        //
+        // 两种模式互斥，优先级明确：**路线模拟覆盖坐标模拟**。
+        //  - 路线模式：位置沿折线推进，每秒覆盖 cfg.lat/lon
+        //  - 坐标模式：位置恒等于用户设定的基准点（staticLatitude/staticLongitude）
+        //
+        // 之前这里只看"路线点数够不够"，不看"路线是不是在跑"，
+        // 于是停掉路线后位置会永远停在路线最后一个点上，用户设的坐标回不去。
+        val routeRunning = ConfigStore.routeRunning(this)
         val route = ConfigStore.loadRoute(this)
-        if (route.size >= 2) {
+
+        if (routeRunning && route.size >= 2) {
             // 速度由配速（min/km）换算而来
             val speedMs = ConfigStore.routeSpeedMetersPerSec(this)
             val loop = ConfigStore.routeLoop(this)
@@ -193,6 +202,20 @@ class FakeLocationService : Service() {
             }
 
             checkTargetDistance()
+        } else {
+            if (routeRunning) {
+                // 路线点不够，安静退回坐标模式
+                Log.w(TAG, "route has ${route.size} points, fall back to static")
+                ConfigStore.saveRouteRunning(this, false)
+            }
+            // 坐标模式：把基准点写回当前位置。
+            // 只在真的不一致时才写，避免每秒一次无谓的落盘 + 广播。
+            if (cfg.latitude != cfg.staticLatitude || cfg.longitude != cfg.staticLongitude) {
+                cfg.latitude = cfg.staticLatitude
+                cfg.longitude = cfg.staticLongitude
+                cfg.speed = 0f
+                ConfigStore.save(this, cfg)
+            }
         }
 
         // ---- 开发者模拟位置兜底 ----
@@ -371,11 +394,12 @@ class FakeLocationService : Service() {
             ConfigStore.MODE_MOCK_PROVIDER -> "模拟位置通道"
             else -> "LSPosed 通道"
         }
+        val simMode = if (ConfigStore.routeRunning(this)) "路线模拟" else "坐标模拟"
 
         // 路线在跑的话，正文优先显示里程进度
         val route = ConfigStore.loadRoute(this)
         val notifyKm = ConfigStore.routeNotifyKm(this)
-        val body = if (route.size >= 2) {
+        val body = if (ConfigStore.routeRunning(this) && route.size >= 2) {
             val done = travelledMeters / 1000.0
             val target = if (notifyKm > 0.0) " / ${String.format("%.2f", notifyKm)}" else ""
             String.format(
@@ -384,14 +408,14 @@ class FakeLocationService : Service() {
             )
         } else {
             String.format(
-                "%.6f, %.6f  精度%.0fm  %.1f km/h",
-                cfg.latitude, cfg.longitude, cfg.accuracy, cfg.speed * 3.6f
+                "%.6f, %.6f  精度%.0fm",
+                cfg.latitude, cfg.longitude, cfg.accuracy
             )
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("虚拟定位运行中 · $mode")
+            .setContentTitle("虚拟定位运行中 · $mode · $simMode")
             .setContentText(body)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

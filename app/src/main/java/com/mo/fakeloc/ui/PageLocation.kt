@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.mo.fakeloc.data.ConfigStore
+import com.mo.fakeloc.ui.theme.WarnAmber
 
 /**
  * 位置页：坐标输入、地图选点、精度/速度/航向，以及常用位置收藏。
@@ -33,9 +34,16 @@ internal fun PageLocation(st: AppState) {
     PageColumn {
 
         SectionCard(
-            "伪造坐标",
-            "存储与下发的统一是 WGS-84；国内地图选点会自动换算。"
+            "坐标模拟",
+            "这里设的是**基准点**。点「应用坐标」只切坐标，不动任何开关。"
         ) {
+            if (st.routeRunning) {
+                Hint(
+                    "路线模拟正在跑，它会覆盖这里的位置 —— 现在改了也要等停了路线才看得到效果。",
+                    WarnAmber
+                )
+            }
+
             OutlinedButton(
                 onClick = { st.showMap = true },
                 modifier = Modifier.fillMaxWidth()
@@ -80,9 +88,9 @@ internal fun PageLocation(st: AppState) {
                         ) {
                             st.toast("经纬度不合法")
                         } else {
-                            val alt = st.altText.toDoubleOrNull() ?: st.cfg.altitude
-                            st.persist(st.cfg.copy(latitude = lat, longitude = lon, altitude = alt))
-                            st.toast("已应用")
+                            // 只切坐标：不碰总开关、不碰路线状态
+                            st.applyCoords(lat, lon, st.altText.toDoubleOrNull())
+                            st.toast("已切换坐标")
                         }
                     },
                     modifier = Modifier

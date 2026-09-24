@@ -109,17 +109,20 @@ internal fun PageOverview(st: AppState) {
 
         SectionCard("当前坐标", "存储与下发的统一是 WGS-84；国内地图选点会自动换算。") {
             Text(
-                String.format("%.6f, %.6f", st.cfg.latitude, st.cfg.longitude),
+                String.format("%.6f, %.6f", st.cfg.staticLatitude, st.cfg.staticLongitude),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary
             )
+            InfoRow("模拟模式", if (st.routeRunning) "路线模拟（覆盖坐标）" else "坐标模拟")
+            if (st.routeRunning) {
+                // 路线跑着的时候当前位置每秒都在变，和设定值分开显示
+                InfoRow(
+                    "当前位置",
+                    String.format("%.6f, %.6f", st.cfg.latitude, st.cfg.longitude)
+                )
+            }
             InfoRow("海拔", "${fmt1(st.cfg.altitude)} m")
             InfoRow("水平精度", "${st.cfg.accuracy.toInt()} m")
-            InfoRow(
-                "速度",
-                if (st.cfg.speed <= 0.05f) "静止" else String.format("%.1f km/h", st.cfg.speed * 3.6f)
-            )
-            InfoRow("航向", "${st.cfg.bearing.toInt()}°")
 
             OutlinedButton(
                 onClick = { st.showMap = true },
@@ -135,6 +138,7 @@ internal fun PageOverview(st: AppState) {
                 Hint("还没有可用路线（至少需要 2 个途经点）。去「路线模拟」页规划。")
             } else {
                 val total = RouteEngine.totalLength(st.route)
+                InfoRow("状态", if (st.routeRunning) "运行中" else "已停止")
                 InfoRow("途经点", "${st.route.size} 个")
                 InfoRow("总长", "${fmt2(total / 1000.0)} km")
                 InfoRow(
@@ -153,21 +157,25 @@ internal fun PageOverview(st: AppState) {
                         if (st.route.size < 2) {
                             st.toast("至少需要 2 个途经点")
                         } else {
-                            st.startService()
+                            st.startRoute()
                             st.toast("开始路线模拟")
                         }
                     },
-                    enabled = st.route.size >= 2,
+                    enabled = st.route.size >= 2 && !st.routeRunning,
                     modifier = Modifier.weight(1f)
                 ) { Text("开始路线") }
 
                 OutlinedButton(
                     onClick = {
-                        st.stopService()
-                        st.toast("已停止")
+                        st.stopRoute()
+                        st.toast("已停止路线模拟（总开关保持开启）")
                     },
+                    enabled = st.routeRunning,
                     modifier = Modifier.weight(1f)
-                ) { Text("停止") }
+                ) { Text("停止路线") }
+            }
+            if (st.routeRunning) {
+                Hint("停止路线只停路线本身，总开关不变 —— 位置会落回上面设定的坐标。")
             }
         }
 

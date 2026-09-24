@@ -154,24 +154,30 @@ internal fun PageRoute(st: AppState) {
                         if (st.route.size < 2) {
                             st.toast("至少需要 2 个途经点")
                         } else {
-                            st.startService()
+                            st.startRoute()
                             st.toast("开始路线模拟")
                         }
                     },
-                    enabled = st.route.size >= 2,
+                    enabled = st.route.size >= 2 && !st.routeRunning,
                     modifier = Modifier.weight(1f)
                 ) { Text("开始路线") }
 
                 OutlinedButton(
                     onClick = {
-                        st.stopService()
-                        st.toast("已停止")
+                        st.stopRoute()
+                        st.toast("已停止路线模拟（总开关保持开启）")
                     },
+                    enabled = st.routeRunning,
                     modifier = Modifier.weight(1f)
-                ) { Text("停止") }
+                ) { Text("停止路线") }
             }
+
             Hint(
-                "开始前请确认总开关是开的；「总览」页能看到当前是否在运行。"
+                if (st.routeRunning) {
+                    "路线模拟正在跑，它会**覆盖**坐标模拟的位置。停止路线后位置落回设定坐标，总开关不受影响。"
+                } else {
+                    "开始路线会自动打开总开关。停止路线只停路线本身，不会关掉总开关。"
+                }
             )
         }
     }

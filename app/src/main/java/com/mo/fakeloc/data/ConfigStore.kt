@@ -37,6 +37,15 @@ object ConfigStore {
     private const val KEY_ROUTE_LOOP = "route_loop"
     private const val KEY_ENGINE_MODE = "engine_mode"
 
+    /**
+     * 路线是否正在跑。
+     *
+     * 刻意和总开关 `enabled` 分开：总开关是"要不要伪造位置"，
+     * 这个是"用哪种方式伪造"（坐标模拟 / 路线模拟）。
+     * 合在一起就会出现"停路线顺手把总开关也关了"这种别扭行为。
+     */
+    private const val KEY_ROUTE_RUNNING = "route_running"
+
     /** 配速取值范围（min/km）：2:00/km（30 km/h）~ 30:00/km（2 km/h）。 */
     const val MIN_ROUTE_PACE = 2.0
     const val MAX_ROUTE_PACE = 30.0
@@ -206,7 +215,14 @@ object ConfigStore {
     fun routeLoop(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_ROUTE_LOOP, true)
 
     fun saveRouteLoop(ctx: Context, loop: Boolean) {
-        prefs(ctx).edit().putBoolean(KEY_ROUTE_LOOP, loop).commit()
+        prefs(ctx).edit().putBoolean(KEY_ROUTE_LOOP, loop).apply()
+    }
+
+    /** 路线是否正在跑。见 [KEY_ROUTE_RUNNING] 的说明。 */
+    fun routeRunning(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_ROUTE_RUNNING, false)
+
+    fun saveRouteRunning(ctx: Context, running: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_ROUTE_RUNNING, running).apply()
     }
 
     // ---------------------------------------------------------------- 工作模式

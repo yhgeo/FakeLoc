@@ -17,9 +17,20 @@ data class LocConfig(
     /** 总开关。false 时 hook 直接放行真实位置。 */
     var enabled: Boolean = false,
 
+    /** 当前位置 —— hook 实际用的就是这个。路线模拟时会每秒被覆盖。 */
     var latitude: Double = 39.908722,
     var longitude: Double = 116.397499,
     var altitude: Double = 50.0,
+
+    /**
+     * 用户设定的「坐标模拟」基准点。
+     *
+     * 为什么要和 latitude/longitude 分开存：后者是**当前位置**，路线模拟时每秒被覆盖。
+     * 如果只存一份，路线跑完切回坐标模式时位置会停在路线的最后一个点，
+     * 用户设的坐标就丢了 —— 表现就是"停了路线之后位置回不去"。
+     */
+    var staticLatitude: Double = 39.908722,
+    var staticLongitude: Double = 116.397499,
 
     /** 水平精度（米），越小越"可信"。 */
     var accuracy: Float = 5.0f,
@@ -82,6 +93,8 @@ data class LocConfig(
         o.put("lat", latitude)
         o.put("lon", longitude)
         o.put("alt", altitude)
+        o.put("slat", staticLatitude)
+        o.put("slon", staticLongitude)
         o.put("acc", accuracy.toDouble())
         o.put("speed", speed.toDouble())
         o.put("bearing", bearing.toDouble())
@@ -118,6 +131,9 @@ data class LocConfig(
                     latitude = o.optDouble("lat", 39.908722),
                     longitude = o.optDouble("lon", 116.397499),
                     altitude = o.optDouble("alt", 50.0),
+                    // 老配置没有这两个字段，回落到 lat/lon，保证升级后坐标不丢
+                    staticLatitude = o.optDouble("slat", o.optDouble("lat", 39.908722)),
+                    staticLongitude = o.optDouble("slon", o.optDouble("lon", 116.397499)),
                     accuracy = o.optDouble("acc", 5.0).toFloat(),
                     speed = o.optDouble("speed", 0.0).toFloat(),
                     bearing = o.optDouble("bearing", 0.0).toFloat(),

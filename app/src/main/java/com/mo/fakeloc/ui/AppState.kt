@@ -37,12 +37,23 @@ class AppState(
 
     var cfg by mutableStateOf(ConfigStore.load(ctx))
 
-    var latText by mutableStateOf(fmt6(cfg.latitude))
-    var lonText by mutableStateOf(fmt6(cfg.longitude))
+    // 输入框显示的是**基准点**（坐标模拟用的那个），不是当前位置 ——
+    // 当前位置在路线模拟时每秒都在变，显示它没法编辑
+    var latText by mutableStateOf(fmt6(cfg.staticLatitude))
+    var lonText by mutableStateOf(fmt6(cfg.staticLongitude))
     var altText by mutableStateOf(fmt1(cfg.altitude))
 
     var favorites by mutableStateOf(ConfigStore.loadFavorites(ctx))
     var route by mutableStateOf(ConfigStore.loadRoute(ctx))
+
+    /**
+     * 路线是否正在跑。
+     *
+     * 和总开关 [LocConfig.enabled] 是两回事：
+     *  - 总开关 = 要不要伪造位置
+     *  - routeRunning = 用哪种方式伪造（路线 / 坐标）
+     */
+    var routeRunning by mutableStateOf(ConfigStore.routeRunning(ctx))
 
     /** 路线配速，单位 **min/km**（跑步界通用说法）。 */
     var routePace by mutableStateOf(ConfigStore.routePaceMinPerKm(ctx))
@@ -134,30 +145,90 @@ class AppState(
 
     fun toast(msg: String) = Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
 
-    fun applyCoords(lat: Double, lon: Double) {
+    /**
+     * 应用一组坐标 —— **只切坐标，不动任何开关**。
+     *
+     * 同时写基准点（staticLatitude/Longitude）和当前位置（latitude/longitude）：
+     * 坐标模式下立刻生效；路线模式跑着的时候，下一拍会被路线覆盖回来（路线优先）。
+     */
+    fun applyCoords(lat: Double, lon: Double, altitude: Double? = null) {
         latText = fmt6(lat)
         lonText = fmt6(lon)
-        persist(cfg.copy(latitude = lat, longitude = lon))
+        if (altitude != null) altText = fmt1(altitude)
+        persist(
+            cfg.copy(
+                staticLatitude = lat,
+                staticLongitude = lon,
+                latitude = lat,
+                longitude = lon,
+                altitude = altitude ?: cfg.altitude
+            )
+        )
     }
 
     /** 从存储重新读一遍（恢复备份后用）。 */
     fun reloadFromStore() {
         cfg = ConfigStore.load(ctx)
-        latText = fmt6(cfg.latitude)
-        lonText = fmt6(cfg.longitude)
+        latText = fmt6(cfg.staticLatitude)
+        lonText = fmt6(cfg.staticLongitude)
         altText = fmt1(cfg.altitude)
         route = ConfigStore.loadRoute(ctx)
         favorites = ConfigStore.loadFavorites(ctx)
+        routeRunning = ConfigStore.routeRunning(ctx)
     }
 
+    /**
+     * 总开关打开 → 进入**坐标模拟**。
+     *
+     * 顺带把路线标志清掉：用户按的是"总开关"，预期是开始伪造**设定好的坐标**，
+     * 而不是接着上次没跑完的路线。
+     */
     fun startService() {
+        ConfigStore.saveRouteRunning(ctx, false)
+        routeRunning = false
+        persist(
+            cfg.copy(
+                enabled = true,
+                latitude = cfg.staticLatitude,
+                longitude = cfg.staticLongitude,
+                speed = 0f
+            )
+        )
+        FakeLocationService.start(ctx)
+    }
+
+    /** 总开关关闭 → 全部停掉。 */
+    fun stopService() {
+        ConfigStore.saveRouteRunning(ctx, false)
+        routeRunning = false
+        persist(cfg.copy(enabled = false))
+        FakeLocationService.stop(ctx)
+    }
+
+    /** 开始路线模拟（路线覆盖坐标）。 */
+    fun startRoute() {
+        ConfigStore.saveRouteRunning(ctx, true)
+        routeRunning = true
         persist(cfg.copy(enabled = true))
         FakeLocationService.start(ctx)
     }
 
-    fun stopService() {
-        persist(cfg.copy(enabled = false))
-        FakeLocationService.stop(ctx)
+    /**
+     * 停止路线模拟。
+     *
+     * **只停路线，不动总开关** —— 停完继续按设定坐标伪造位置，
+     * 而不是把整个虚拟定位关掉。
+     */
+    fun stopRoute() {
+        ConfigStore.saveRouteRunning(ctx, false)
+        routeRunning = false
+        persist(
+            cfg.copy(
+                latitude = cfg.staticLatitude,
+                longitude = cfg.staticLongitude,
+                speed = 0f
+            )
+        )
     }
 }
 
