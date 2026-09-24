@@ -18,9 +18,25 @@ object ConfigStore {
     private const val KEY_CONFIG = "config_json"
     private const val KEY_FAVORITES = "favorites_json"
     private const val KEY_ROUTE = "route_json"
-    private const val KEY_ROUTE_SPEED = "route_speed_kmh"
+
+    /** 老版本用的是 km/h，保留只为读一次做迁移。 */
+    private const val KEY_ROUTE_SPEED_LEGACY_KMH = "route_speed_kmh"
+
+    /** 路线速度，单位 **km/min**。 */
+    private const val KEY_ROUTE_SPEED = "route_speed_km_per_min"
+
+    /** 跑到指定公里数后弹通知；0 = 关闭。 */
+    private const val KEY_ROUTE_NOTIFY_KM = "route_notify_km"
+
     private const val KEY_ROUTE_LOOP = "route_loop"
     private const val KEY_ENGINE_MODE = "engine_mode"
+
+    /** 路线速度取值范围（km/min）：1.2 km/h ~ 120 km/h。 */
+    const val MIN_ROUTE_SPEED = 0.02
+    const val MAX_ROUTE_SPEED = 2.0
+
+    /** 默认 0.15 km/min = 9 km/h，差不多是慢跑。 */
+    const val DEFAULT_ROUTE_SPEED = 0.15
 
     /** LSPosed 通道：hook 层拦截，覆盖面最广、最隐蔽（推荐）。 */
     const val MODE_LSPOSED = 0
@@ -129,10 +145,39 @@ object ConfigStore {
         prefs(ctx).edit().putString(KEY_ROUTE, arr.toString()).commit()
     }
 
-    fun routeSpeedKmh(ctx: Context): Double = prefs(ctx).getFloat(KEY_ROUTE_SPEED, 30f).toDouble()
+    /**
+     * 路线速度，单位 **km/min**。
+     *
+     * 第一次读取时如果只有老版本留下的 km/h 值，自动折算并落盘，用户无感。
+     */
+    fun routeSpeedKmPerMin(ctx: Context): Double {
+        val p = prefs(ctx)
+        if (p.contains(KEY_ROUTE_SPEED)) {
+            return p.getFloat(KEY_ROUTE_SPEED, DEFAULT_ROUTE_SPEED.toFloat())
+                .toDouble()
+                .coerceIn(MIN_ROUTE_SPEED, MAX_ROUTE_SPEED)
+        }
+        val legacyKmh = p.getFloat(KEY_ROUTE_SPEED_LEGACY_KMH, -1f).toDouble()
+        val kmPerMin = if (legacyKmh > 0.0) {
+            (legacyKmh / 60.0).coerceIn(MIN_ROUTE_SPEED, MAX_ROUTE_SPEED)
+        } else {
+            DEFAULT_ROUTE_SPEED
+        }
+        p.edit().putFloat(KEY_ROUTE_SPEED, kmPerMin.toFloat()).apply()
+        return kmPerMin
+    }
 
-    fun saveRouteSpeed(ctx: Context, kmh: Double) {
-        prefs(ctx).edit().putFloat(KEY_ROUTE_SPEED, kmh.toFloat()).commit()
+    fun saveRouteSpeed(ctx: Context, kmPerMin: Double) {
+        val v = kmPerMin.coerceIn(MIN_ROUTE_SPEED, MAX_ROUTE_SPEED)
+        prefs(ctx).edit().putFloat(KEY_ROUTE_SPEED, v.toFloat()).apply()
+    }
+
+    /** 跑到多少公里后弹通知；0 = 关闭。 */
+    fun routeNotifyKm(ctx: Context): Double =
+        prefs(ctx).getFloat(KEY_ROUTE_NOTIFY_KM, 0f).toDouble().coerceAtLeast(0.0)
+
+    fun saveRouteNotifyKm(ctx: Context, km: Double) {
+        prefs(ctx).edit().putFloat(KEY_ROUTE_NOTIFY_KM, km.coerceAtLeast(0.0).toFloat()).apply()
     }
 
     fun routeLoop(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_ROUTE_LOOP, true)

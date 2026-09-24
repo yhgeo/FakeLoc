@@ -28,6 +28,9 @@ object FakeLocationFactory {
 
     private const val METERS_PER_DEG_LAT = 111_320.0
 
+    /** 外推的时间上限：配置来源可能是旧副本，不封顶位置会一路飞出去。 */
+    private const val MAX_EXTRAPOLATE_MS = 3_000L
+
     private val rnd = Random()
 
     // ---- 抖动状态：慢速漂移 + 快速噪声，模拟真实 GPS 的"呼吸感" ----
@@ -63,7 +66,7 @@ object FakeLocationFactory {
         val p = normalizeProvider(provider)
         val loc = Location(p)
 
-        val (lat, lon) = jittered(cfg)
+        val (lat, lon) = positionAt(cfg)
         loc.latitude = lat
         loc.longitude = lon
         loc.altitude = cfg.altitude
@@ -112,6 +115,48 @@ object FakeLocationFactory {
         }
 
         return loc
+    }
+
+    /**
+     * 当前位置 = 配置里的基准点 + 按速度/航向做**时间外推**。
+     *
+     * ## 为什么需要外推
+     * App 侧每秒才写一次配置，hook 侧按轮询拿到的是一个个离散的"路标点"。
+     * 如果直接把路标点当成当前位置返回，应用看到的就是**每秒跳一格** ——
+     * 跑步类小程序会判定轨迹不连续。
+     *
+     * 配置里的 `seq` 就是 App 保存它时的 `System.currentTimeMillis()`，
+     * 拿它当时间戳，配合 `speed`（米/秒）和 `bearing`（度）往前推，
+     * 于是**无论应用以多高的频率采样，位置都是连续推进的**。
+     *
+     * 外推上限 [MAX_EXTRAPOLATE_MS]：配置来源可能是几十秒前的旧副本
+     * （比如服务已经停了），不封顶的话位置会一路飞出去。
+     */
+    private fun positionAt(cfg: LocConfig): Pair<Double, Double> {
+        val (baseLat, baseLon) = jittered(cfg)
+        if (cfg.speed <= 0.05f) return baseLat to baseLon
+        if (cfg.seq <= 0L) return baseLat to baseLon
+
+        val ageMs = (System.currentTimeMillis() - cfg.seq).coerceIn(0L, MAX_EXTRAPOLATE_MS)
+        if (ageMs <= 0L) return baseLat to baseLon
+
+        return advance(baseLat, baseLon, cfg.speed * (ageMs / 1000.0), cfg.bearing)
+    }
+
+    /** 从 (lat,lon) 沿 bearing 方向前进 meters 米（等距圆柱近似，短距离足够准）。 */
+    private fun advance(
+        lat: Double,
+        lon: Double,
+        meters: Double,
+        bearingDeg: Float
+    ): Pair<Double, Double> {
+        if (meters <= 0.0) return lat to lon
+        val br = Math.toRadians(bearingDeg.toDouble())
+        val dNorth = meters * Math.cos(br)
+        val dEast = meters * Math.sin(br)
+        val cosLat = Math.cos(Math.toRadians(lat)).coerceAtLeast(1e-6)
+        return (lat + dNorth / METERS_PER_DEG_LAT) to
+            (lon + dEast / (METERS_PER_DEG_LAT * cosLat))
     }
 
     /** 抹掉 / 伪造 mock 标记。 */

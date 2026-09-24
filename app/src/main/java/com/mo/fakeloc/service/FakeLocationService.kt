@@ -54,6 +54,9 @@ class FakeLocationService : Service() {
     /** 上一次发布到 Settings.Global 中继的时间（节流用）。 */
     private var lastRelayAt = 0L
 
+    /** 目标里程是否已经通知过（每趟只提醒一次）。 */
+    private var targetNotified = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -89,6 +92,10 @@ class FakeLocationService : Service() {
         }
 
         startForegroundCompat(buildNotification(cfg))
+
+        // 新一轮开始：里程归零、达标提醒重新武装
+        travelledMeters = 0.0
+        targetNotified = false
 
         // 只在真正开始的时候把配置备份到 root 目录（避免每秒一次 su 调用）
         Thread {
@@ -147,7 +154,8 @@ class FakeLocationService : Service() {
         // ---- 路线推进 ----
         val route = ConfigStore.loadRoute(this)
         if (route.size >= 2) {
-            val speedMs = ConfigStore.routeSpeedKmh(this) * 1000.0 / 3600.0
+            // 速度单位是 km/min
+            val speedMs = ConfigStore.routeSpeedKmPerMin(this) * 1000.0 / 60.0
             val loop = ConfigStore.routeLoop(this)
             travelledMeters += speedMs * (TICK_MS / 1000.0)
 
@@ -162,8 +170,11 @@ class FakeLocationService : Service() {
                 if (pose.finished && !loop) {
                     Log.i(TAG, "route finished")
                     travelledMeters = 0.0
+                    targetNotified = false
                 }
             }
+
+            checkTargetDistance()
         }
 
         // ---- 开发者模拟位置兜底 ----
@@ -281,14 +292,57 @@ class FakeLocationService : Service() {
             }
             nm.createNotificationChannel(ch)
         }
+        // 达标提醒单独一个通道：常驻通知那个是 IMPORTANCE_LOW（静音），
+        // 走它的话提醒根本不会响，用户注意不到。
+        if (nm.getNotificationChannel(CHANNEL_TARGET) == null) {
+            val ch = NotificationChannel(
+                CHANNEL_TARGET,
+                "里程达标提醒",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "路线模拟跑到设定公里数时提醒"
+                enableVibration(true)
+                setShowBadge(true)
+            }
+            nm.createNotificationChannel(ch)
+        }
+    }
+
+    private fun tapIntent(): PendingIntent = PendingIntent.getActivity(
+        this, 0,
+        Intent(this, MainActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    /**
+     * 到达设定里程就弹一条会响铃/震动的通知。
+     */
+    private fun checkTargetDistance() {
+        val notifyKm = ConfigStore.routeNotifyKm(this)
+        if (notifyKm <= 0.0 || targetNotified) return
+        if (travelledMeters < notifyKm * 1000.0) return
+        targetNotified = true
+
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        val n = NotificationCompat.Builder(this, CHANNEL_TARGET)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("已完成 ${String.format("%.2f", notifyKm)} km")
+            .setContentText("路线模拟到达设定里程")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setContentIntent(tapIntent())
+            .build()
+        try {
+            nm.notify(NOTIFY_TARGET_ID, n)
+            Log.i(TAG, "target reached: $notifyKm km")
+        } catch (t: Throwable) {
+            Log.w(TAG, "target notification failed: ${t.message}")
+        }
     }
 
     private fun buildNotification(cfg: LocConfig): Notification {
-        val tapIntent = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val tap = tapIntent()
         val stopIntent = PendingIntent.getService(
             this, 1,
             Intent(this, FakeLocationService::class.java).setAction(ACTION_STOP),
@@ -300,18 +354,30 @@ class FakeLocationService : Service() {
             else -> "LSPosed 通道"
         }
 
+        // 路线在跑的话，正文优先显示里程进度
+        val route = ConfigStore.loadRoute(this)
+        val notifyKm = ConfigStore.routeNotifyKm(this)
+        val body = if (route.size >= 2) {
+            val done = travelledMeters / 1000.0
+            val target = if (notifyKm > 0.0) " / ${String.format("%.2f", notifyKm)}" else ""
+            String.format(
+                "已跑 %.2f%s km · %.2f km/min",
+                done, target, ConfigStore.routeSpeedKmPerMin(this)
+            )
+        } else {
+            String.format(
+                "%.6f, %.6f  精度%.0fm  %.1f km/h",
+                cfg.latitude, cfg.longitude, cfg.accuracy, cfg.speed * 3.6f
+            )
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("虚拟定位运行中 · $mode")
-            .setContentText(
-                String.format(
-                    "%.6f, %.6f  精度%.0fm  %.0fkm/h",
-                    cfg.latitude, cfg.longitude, cfg.accuracy, cfg.speed * 3.6f
-                )
-            )
+            .setContentText(body)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(tapIntent)
+            .setContentIntent(tap)
             .addAction(0, "停止", stopIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -344,7 +410,11 @@ class FakeLocationService : Service() {
     companion object {
         private const val TAG = "FakeLoc/Service"
         private const val CHANNEL_ID = "fakeloc_run"
+
+        /** 里程达标提醒走单独通道（IMPORTANCE_HIGH，会响会震）。 */
+        private const val CHANNEL_TARGET = "fakeloc_target"
         private const val NOTIFY_ID = 0x10C
+        private const val NOTIFY_TARGET_ID = 0x10D
         private const val TICK_MS = 1000L
 
         const val ACTION_START = "com.mo.fakeloc.action.START"
