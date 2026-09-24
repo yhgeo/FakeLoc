@@ -115,4 +115,19 @@ object RouteEngine {
     /** 经纬度粗校验。 */
     fun isValid(lat: Double, lon: Double): Boolean =
         !lat.isNaN() && !lon.isNaN() && abs(lat) <= 90.0 && abs(lon) <= 180.0
+
+    /**
+     * 把配速（min/km）格式化成跑步界通用的写法，例如 `6'42"/km`。
+     *
+     * 跑步类应用和跑者都按这个说法交流，"9.0 km/h" 反而要心算。
+     */
+    fun formatPace(minPerKm: Double): String {
+        if (minPerKm <= 0.0 || !minPerKm.isFinite()) return "--'--\"/km"
+        val totalSec = Math.round(minPerKm * 60).toInt()
+        return String.format("%d'%02d\"/km", totalSec / 60, totalSec % 60)
+    }
+
+    /** 配速 → km/h，界面上附带给一个直观对照。 */
+    fun paceToKmh(minPerKm: Double): Double =
+        if (minPerKm <= 0.0) 0.0 else 60.0 / minPerKm
 }

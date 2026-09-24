@@ -62,9 +62,6 @@ internal fun agoText(seenAt: Long, now: Long = System.currentTimeMillis()): Stri
     }
 }
 
-/** km/min → km/h，界面上两个都给，方便对照。 */
-internal fun kmPerMinToKmh(v: Double): Double = v * 60.0
-
 // ==================================================================== 通用组件
 
 /**

@@ -30,8 +30,9 @@ class MainActivity : ComponentActivity() {
         // 上次是开启状态的话，进 App 就把前台服务恢复起来。
         // 路线模拟靠这个服务每秒推进位置，而它不会自己跨重启存活 ——
         // 不恢复的话，重启后位置会定在路线起点不动。
+        // 用 refresh 而不是 start：refresh 不会把累计里程清零。
         runCatching {
-            if (ConfigStore.load(this).enabled) FakeLocationService.start(this)
+            if (ConfigStore.load(this).enabled) FakeLocationService.refresh(this)
         }
 
         setContent {

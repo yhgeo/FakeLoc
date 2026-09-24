@@ -44,8 +44,8 @@ class AppState(
     var favorites by mutableStateOf(ConfigStore.loadFavorites(ctx))
     var route by mutableStateOf(ConfigStore.loadRoute(ctx))
 
-    /** 路线速度，单位 km/min。 */
-    var routeSpeed by mutableStateOf(ConfigStore.routeSpeedKmPerMin(ctx))
+    /** 路线配速，单位 **min/km**（跑步界通用说法）。 */
+    var routePace by mutableStateOf(ConfigStore.routePaceMinPerKm(ctx))
     var routeLoop by mutableStateOf(ConfigStore.routeLoop(ctx))
 
     /** 跑到多少公里后提醒；0 = 关闭。 */
@@ -57,6 +57,11 @@ class AppState(
 
     var rootState by mutableStateOf<Boolean?>(null)
     var magiskState by mutableStateOf<Boolean?>(null)
+
+    /** LSPosed 框架是否装了（走 root 看 /data/adb/lspd，不依赖包名）。 */
+    var lsposedState by mutableStateOf<Boolean?>(null)
+
+    /** 管理器包名，能查到就直接跳转；查不到就置空。 */
     var lsposedPkg by mutableStateOf<String?>(null)
 
     // ---------------------------------------------------------------- 弹窗
@@ -83,15 +88,18 @@ class AppState(
     /** 启动时探测一次环境。 */
     suspend fun bootstrap() {
         HookReportRegistry.loadIfNeeded(ctx)
-        rootState = withContext(Dispatchers.IO) { RootShell.hasRoot() }
-        magiskState = withContext(Dispatchers.IO) { RootHelper.isMagiskModuleInstalled() }
-        lsposedPkg = withContext(Dispatchers.IO) { findLsposed(ctx) }
+        redetect()
     }
 
     suspend fun redetect() {
         rootState = withContext(Dispatchers.IO) { RootShell.hasRoot() }
         magiskState = withContext(Dispatchers.IO) { RootHelper.isMagiskModuleInstalled() }
         lsposedPkg = withContext(Dispatchers.IO) { findLsposed(ctx) }
+        // 包名查不到不代表没装 —— LSPosed 的「隐藏管理器」会换包名，
+        // 所以再走 root 看数据目录兜底
+        lsposedState = withContext(Dispatchers.IO) {
+            lsposedPkg != null || RootHelper.isLsposedInstalled()
+        }
     }
 
     fun refreshReports() {

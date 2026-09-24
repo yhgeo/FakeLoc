@@ -70,7 +70,9 @@ class FakeLocationService : Service() {
                 stopEverything()
                 return START_NOT_STICKY
             }
-            ACTION_START, ACTION_REFRESH, null -> startEverything()
+            // 只有显式「开始」才把里程清零；刷新（改配置、进程重建）要接着累计
+            ACTION_START -> startEverything(resetDistance = true)
+            ACTION_REFRESH, null -> startEverything(resetDistance = false)
         }
         return START_STICKY
     }
@@ -84,7 +86,7 @@ class FakeLocationService : Service() {
 
     // ------------------------------------------------------------------ 启停
 
-    private fun startEverything() {
+    private fun startEverything(resetDistance: Boolean) {
         val cfg = ConfigStore.load(this)
         if (!cfg.enabled) {
             stopEverything()
@@ -93,9 +95,18 @@ class FakeLocationService : Service() {
 
         startForegroundCompat(buildNotification(cfg))
 
-        // 新一轮开始：里程归零、达标提醒重新武装
-        travelledMeters = 0.0
-        targetNotified = false
+        if (resetDistance) {
+            // 显式开始：里程归零、达标提醒重新武装
+            travelledMeters = 0.0
+            targetNotified = false
+            ConfigStore.saveRouteTravelledMeters(this, 0.0)
+        } else {
+            // 进程被系统杀掉后重建：接着上次的累计里程继续算，
+            // 否则"单圈跑不到目标、靠循环累计"的提醒永远触发不了
+            travelledMeters = ConfigStore.routeTravelledMeters(this)
+            val targetM = ConfigStore.routeNotifyKm(this) * 1000.0
+            targetNotified = targetM > 0.0 && travelledMeters >= targetM
+        }
 
         // 只在真正开始的时候把配置备份到 root 目录（避免每秒一次 su 调用）
         Thread {
@@ -154,9 +165,12 @@ class FakeLocationService : Service() {
         // ---- 路线推进 ----
         val route = ConfigStore.loadRoute(this)
         if (route.size >= 2) {
-            // 速度单位是 km/min
-            val speedMs = ConfigStore.routeSpeedKmPerMin(this) * 1000.0 / 60.0
+            // 速度由配速（min/km）换算而来
+            val speedMs = ConfigStore.routeSpeedMetersPerSec(this)
             val loop = ConfigStore.routeLoop(this)
+
+            // travelledMeters 是**累计**里程，循环播放时会一直累加 ——
+            // 这样"单圈跑不到目标、多圈凑够"的提醒才成立
             travelledMeters += speedMs * (TICK_MS / 1000.0)
 
             val pose = RouteEngine.poseAt(route, travelledMeters, loop)
@@ -171,6 +185,10 @@ class FakeLocationService : Service() {
                     Log.i(TAG, "route finished")
                     travelledMeters = 0.0
                     targetNotified = false
+                    ConfigStore.saveRouteTravelledMeters(this, 0.0)
+                } else if (tickCount % 5 == 0) {
+                    // 每 5 秒落一次盘，服务被系统杀掉也不至于从头算
+                    ConfigStore.saveRouteTravelledMeters(this, travelledMeters)
                 }
             }
 
@@ -361,8 +379,8 @@ class FakeLocationService : Service() {
             val done = travelledMeters / 1000.0
             val target = if (notifyKm > 0.0) " / ${String.format("%.2f", notifyKm)}" else ""
             String.format(
-                "已跑 %.2f%s km · %.2f km/min",
-                done, target, ConfigStore.routeSpeedKmPerMin(this)
+                "已跑 %.2f%s km · %s",
+                done, target, RouteEngine.formatPace(ConfigStore.routePaceMinPerKm(this))
             )
         } else {
             String.format(

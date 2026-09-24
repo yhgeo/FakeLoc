@@ -22,21 +22,27 @@ object ConfigStore {
     /** 老版本用的是 km/h，保留只为读一次做迁移。 */
     private const val KEY_ROUTE_SPEED_LEGACY_KMH = "route_speed_kmh"
 
-    /** 路线速度，单位 **km/min**。 */
-    private const val KEY_ROUTE_SPEED = "route_speed_km_per_min"
+    /** v1.6 短暂用过 km/min，也保留做迁移。 */
+    private const val KEY_ROUTE_SPEED_LEGACY_KM_MIN = "route_speed_km_per_min"
+
+    /** 路线**配速**，单位 **min/km**（跑步界通用说法：每公里多少分钟）。 */
+    private const val KEY_ROUTE_PACE = "route_pace_min_per_km"
 
     /** 跑到指定公里数后弹通知；0 = 关闭。 */
     private const val KEY_ROUTE_NOTIFY_KM = "route_notify_km"
 
+    /** 已累计跑过的距离（米）。持久化，服务被系统杀掉后不会丢。 */
+    private const val KEY_ROUTE_TRAVELLED_M = "route_travelled_m"
+
     private const val KEY_ROUTE_LOOP = "route_loop"
     private const val KEY_ENGINE_MODE = "engine_mode"
 
-    /** 路线速度取值范围（km/min）：1.2 km/h ~ 120 km/h。 */
-    const val MIN_ROUTE_SPEED = 0.02
-    const val MAX_ROUTE_SPEED = 2.0
+    /** 配速取值范围（min/km）：2:00/km（30 km/h）~ 30:00/km（2 km/h）。 */
+    const val MIN_ROUTE_PACE = 2.0
+    const val MAX_ROUTE_PACE = 30.0
 
-    /** 默认 0.15 km/min = 9 km/h，差不多是慢跑。 */
-    const val DEFAULT_ROUTE_SPEED = 0.15
+    /** 默认 6.7 min/km ≈ 9 km/h，差不多是慢跑。 */
+    const val DEFAULT_ROUTE_PACE = 6.7
 
     /** LSPosed 通道：hook 层拦截，覆盖面最广、最隐蔽（推荐）。 */
     const val MODE_LSPOSED = 0
@@ -146,30 +152,47 @@ object ConfigStore {
     }
 
     /**
-     * 路线速度，单位 **km/min**。
+     * 路线**配速**，单位 **min/km**。
      *
-     * 第一次读取时如果只有老版本留下的 km/h 值，自动折算并落盘，用户无感。
+     * 第一次读取时会依次尝试从老键迁移：
+     *  - `route_speed_km_per_min`（v1.6 短暂用过）→ pace = 1 / kmPerMin
+     *  - `route_speed_kmh`（更早）→ pace = 60 / kmh
+     * 用户无感。
      */
-    fun routeSpeedKmPerMin(ctx: Context): Double {
+    fun routePaceMinPerKm(ctx: Context): Double {
         val p = prefs(ctx)
-        if (p.contains(KEY_ROUTE_SPEED)) {
-            return p.getFloat(KEY_ROUTE_SPEED, DEFAULT_ROUTE_SPEED.toFloat())
-                .toDouble()
-                .coerceIn(MIN_ROUTE_SPEED, MAX_ROUTE_SPEED)
+        p.getFloat(KEY_ROUTE_PACE, -1f).toDouble().takeIf { it > 0.0 }?.let {
+            return it.coerceIn(MIN_ROUTE_PACE, MAX_ROUTE_PACE)
         }
+
+        val kmPerMin = p.getFloat(KEY_ROUTE_SPEED_LEGACY_KM_MIN, -1f).toDouble()
         val legacyKmh = p.getFloat(KEY_ROUTE_SPEED_LEGACY_KMH, -1f).toDouble()
-        val kmPerMin = if (legacyKmh > 0.0) {
-            (legacyKmh / 60.0).coerceIn(MIN_ROUTE_SPEED, MAX_ROUTE_SPEED)
-        } else {
-            DEFAULT_ROUTE_SPEED
-        }
-        p.edit().putFloat(KEY_ROUTE_SPEED, kmPerMin.toFloat()).apply()
-        return kmPerMin
+
+        val pace = when {
+            kmPerMin > 0.0 -> 1.0 / kmPerMin
+            legacyKmh > 0.0 -> 60.0 / legacyKmh
+            else -> DEFAULT_ROUTE_PACE
+        }.coerceIn(MIN_ROUTE_PACE, MAX_ROUTE_PACE)
+
+        p.edit().putFloat(KEY_ROUTE_PACE, pace.toFloat()).apply()
+        return pace
     }
 
-    fun saveRouteSpeed(ctx: Context, kmPerMin: Double) {
-        val v = kmPerMin.coerceIn(MIN_ROUTE_SPEED, MAX_ROUTE_SPEED)
-        prefs(ctx).edit().putFloat(KEY_ROUTE_SPEED, v.toFloat()).apply()
+    fun saveRoutePace(ctx: Context, minPerKm: Double) {
+        val v = minPerKm.coerceIn(MIN_ROUTE_PACE, MAX_ROUTE_PACE)
+        prefs(ctx).edit().putFloat(KEY_ROUTE_PACE, v.toFloat()).apply()
+    }
+
+    /** 由配速换算出的移动速度（米/秒），路线引擎直接用这个。 */
+    fun routeSpeedMetersPerSec(ctx: Context): Double =
+        1000.0 / (routePaceMinPerKm(ctx) * 60.0)
+
+    /** 已累计跑过的距离（米）。 */
+    fun routeTravelledMeters(ctx: Context): Double =
+        prefs(ctx).getFloat(KEY_ROUTE_TRAVELLED_M, 0f).toDouble().coerceAtLeast(0.0)
+
+    fun saveRouteTravelledMeters(ctx: Context, meters: Double) {
+        prefs(ctx).edit().putFloat(KEY_ROUTE_TRAVELLED_M, meters.coerceAtLeast(0.0).toFloat()).apply()
     }
 
     /** 跑到多少公里后弹通知；0 = 关闭。 */

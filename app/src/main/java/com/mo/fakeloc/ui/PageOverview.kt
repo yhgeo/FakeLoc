@@ -35,11 +35,19 @@ internal fun PageOverview(st: AppState) {
 
         SectionCard("运行状态") {
             StatusRow("Root 权限", st.rootState)
-            StatusRow("Magisk 模块", st.magiskState)
             StatusRow(
-                "LSPosed 管理器",
-                if (st.lsposedPkg != null) true else null,
-                st.lsposedPkg ?: "未检测到"
+                "Magisk 辅助模块",
+                st.magiskState,
+                if (st.magiskState == true) "已刷入" else "未刷入（可选）"
+            )
+            StatusRow(
+                "LSPosed 框架",
+                st.lsposedState,
+                when {
+                    st.lsposedState == true && st.lsposedPkg == null -> "已安装（管理器包名被隐藏）"
+                    st.lsposedState == true -> "已安装"
+                    else -> "未检测到"
+                }
             )
             StatusRow(
                 "工作模式",
@@ -129,7 +137,10 @@ internal fun PageOverview(st: AppState) {
                 val total = RouteEngine.totalLength(st.route)
                 InfoRow("途经点", "${st.route.size} 个")
                 InfoRow("总长", "${fmt2(total / 1000.0)} km")
-                InfoRow("设定速度", "${fmt2(st.routeSpeed)} km/min（${fmt1(kmPerMinToKmh(st.routeSpeed))} km/h）")
+                InfoRow(
+                    "配速",
+                    "${RouteEngine.formatPace(st.routePace)}（${fmt1(RouteEngine.paceToKmh(st.routePace))} km/h）"
+                )
                 InfoRow(
                     "里程提醒",
                     if (st.routeNotifyKm <= 0.0) "关闭" else "跑到 ${fmt2(st.routeNotifyKm)} km"

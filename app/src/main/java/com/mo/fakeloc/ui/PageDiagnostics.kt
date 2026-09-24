@@ -1,6 +1,7 @@
 package com.mo.fakeloc.ui
 
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +40,16 @@ internal fun PageDiagnostics(st: AppState) {
             "hook 每次来取配置时会顺路报一次到。看到「已注入进程」才算真的生效 —— " +
                 "否则定位不会变。"
         ) {
+            StatusRow(
+                "LSPosed 框架",
+                st.lsposedState,
+                when {
+                    st.lsposedState == true && st.lsposedPkg == null -> "已安装（管理器包名被隐藏）"
+                    st.lsposedState == true -> "已安装"
+                    else -> "未检测到"
+                }
+            )
+
             val alive = st.hookReports.filter { it.isAlive(st.nowTick) }
             StatusRow(
                 "已注入进程",
@@ -87,18 +98,29 @@ internal fun PageDiagnostics(st: AppState) {
                 ) { Text("清空回执") }
                 OutlinedButton(
                     onClick = {
+                        // 优先按包名直接拉起；LSPosed 开了「隐藏管理器」时包名是随机的，
+                        // 这时用官方约定的拨号码唤出（拨号盘里就是 *#*#5776733#*#*）
                         val pkg = st.lsposedPkg ?: LSPOSED_PACKAGES.first()
                         val i = ctx.packageManager.getLaunchIntentForPackage(pkg)
-                        if (i == null) {
-                            st.toast("打不开 LSPosed 管理器")
-                        } else {
+                        if (i != null) {
                             try {
                                 ctx.startActivity(
                                     Intent(i).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 )
+                                return@OutlinedButton
                             } catch (_: Throwable) {
-                                st.toast("打不开 LSPosed 管理器")
                             }
+                        }
+                        try {
+                            ctx.startActivity(
+                                Intent(
+                                    Intent.ACTION_DIAL,
+                                    Uri.parse("tel:*%23*%235776733%23*%23*")
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            st.toast("管理器包名被隐藏，已打开拨号盘")
+                        } catch (_: Throwable) {
+                            st.toast("请在拨号盘输入 *#*#5776733#*#*")
                         }
                     },
                     modifier = Modifier.weight(1f)

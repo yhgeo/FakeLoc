@@ -85,20 +85,23 @@ internal fun PageRoute(st: AppState) {
 
         SectionCard("播放参数") {
             LabeledSlider(
-                label = "速度",
-                value = st.routeSpeed,
-                range = ConfigStore.MIN_ROUTE_SPEED..ConfigStore.MAX_ROUTE_SPEED,
+                label = "配速",
+                value = st.routePace,
+                range = ConfigStore.MIN_ROUTE_PACE..ConfigStore.MAX_ROUTE_PACE,
                 display = String.format(
-                    "%.2f km/min · %.1f km/h",
-                    st.routeSpeed, kmPerMinToKmh(st.routeSpeed)
+                    "%s · %.1f km/h",
+                    RouteEngine.formatPace(st.routePace),
+                    RouteEngine.paceToKmh(st.routePace)
                 ),
                 onChange = {
-                    st.routeSpeed = it
-                    ConfigStore.saveRouteSpeed(ctx, it)
+                    // 滑块是连续的，落盘前按 0.1 min/km 对齐，避免存一堆小数
+                    val v = Math.round(it * 10.0) / 10.0
+                    st.routePace = v
+                    ConfigStore.saveRoutePace(ctx, v)
                 }
             )
             Hint(
-                "参考：走路约 0.08、慢跑约 0.15、快跑约 0.25、骑行约 0.35 km/min。"
+                "每公里用时。参考：走路约 12'、慢跑约 7'、快跑约 5'、骑行约 3'30\"。"
             )
 
             Row(

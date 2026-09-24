@@ -46,6 +46,19 @@ object RootHelper {
             .output.contains("yes")
     }
 
+    /**
+     * LSPosed 框架是否装了。
+     *
+     * 为什么不能靠包名判断：LSPosed 自带「隐藏管理器」，开启后管理器会用随机包名安装，
+     * `pm list packages | grep lsposed` 什么都查不到。但它的数据目录 `/data/adb/lspd/`
+     * 一定存在，用 root 看一眼最可靠。
+     */
+    fun isLsposedInstalled(): Boolean {
+        if (!RootShell.hasRoot()) return false
+        return RootShell.exec("test -d /data/adb/lspd && echo yes || echo no", 8)
+            .output.contains("yes")
+    }
+
     /** 把配置备份到 root 目录，同时写一份世界可读副本供 hook 兜底读取。 */
     fun backupConfig(ctx: Context, json: String): Boolean {
         if (!RootShell.hasRoot()) return false
