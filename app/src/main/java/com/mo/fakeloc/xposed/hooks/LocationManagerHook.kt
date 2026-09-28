@@ -184,16 +184,25 @@ object LocationManagerHook {
         return n
     }
 
-    /** 找到参数里的 LocationListener 并替换成包装版。 */
+    /**
+     * 找到参数里的 LocationListener 并替换成包装版。
+     *
+     * **这里绝不能因为「配置暂时读不到」就跳过包装。**
+     *
+     * 目标应用（微信、地图类）常常在开机自启阶段就注册监听器，而那一刻我们的配置
+     * 线程可能还没拉到第一份配置（`snapshot` 仍为 null）。一旦跳过，这个监听器就以
+     * 未包装状态注册进了系统，**永远拿不到补发** —— 表现为「系统层坐标在动，但应用
+     * 侧位置静止不动」。补发定时器自己会等配置，所以无条件包装是安全的。
+     */
     private fun wrapListenerArg(p: XC_MethodHook.MethodHookParam) {
-        if (ConfigBridge.currentFor(null) == null) return
-
-        // 从参数里抠出 looper 与最小上报间隔，供"补发"定时器复用
+        // 从参数里抠出 provider / looper / 最小上报间隔，供"补发"定时器复用
+        var provider: String? = null
         var looper: Looper? = null
         var minTimeMs = 1000L
         for (i in p.args.indices) {
             val a = p.args[i] ?: continue
             if (a is Looper) looper = a
+            if (i == 0 && a is String) provider = a
             if (i == 1 && a is Long && a > 0L) minTimeMs = a
             if (i == 0 && a is LocationRequest) {
                 try {
@@ -206,12 +215,17 @@ object LocationManagerHook {
 
         for (i in p.args.indices) {
             val a = p.args[i] as? LocationListener ?: continue
-            p.args[i] = wrap(a, looper, minTimeMs)
+            p.args[i] = wrap(a, looper, minTimeMs, provider)
             return
         }
     }
 
-    private fun wrap(original: LocationListener, looper: Looper?, minTimeMs: Long): LocationListener {
+    private fun wrap(
+        original: LocationListener,
+        looper: Looper?,
+        minTimeMs: Long,
+        provider: String?
+    ): LocationListener {
         forward[original]?.let { return it as LocationListener }
 
         val proxy = object : LocationListener {
@@ -267,7 +281,7 @@ object LocationManagerHook {
         backward[proxy] = original
         order.add(proxy)
         evictOldestIfNeeded()
-        startPump(proxy, original, looper, minTimeMs)
+        startPump(proxy, original, looper, minTimeMs, provider)
         return proxy
     }
 
@@ -298,22 +312,28 @@ object LocationManagerHook {
         proxy: LocationListener,
         original: LocationListener,
         looper: Looper?,
-        minTimeMs: Long
+        minTimeMs: Long,
+        provider: String?
     ) {
         stopPump(proxy)
         val interval = minTimeMs.coerceIn(MIN_PUMP_MS, MAX_PUMP_MS)
         val handler = Handler(looper ?: Looper.getMainLooper())
+        // 用**注册时请求的那个 provider** 回推，不要一律写成 gps：
+        // 微信这类应用监听的是 passive，收到 provider 对不上的位置有可能直接忽略。
+        val pumpProvider = provider ?: LocationManager.GPS_PROVIDER
         val runnable = object : Runnable {
             override fun run() {
                 val cfg = ConfigBridge.currentFor(null)
                 if (cfg == null) {
-                    // 配置关掉/读不到了，停止补发
-                    pumps.remove(proxy)
+                    // 配置暂时读不到（App 被冻结 / 通道抖动）。
+                    // **继续等待，不要停掉补发** —— 原来的写法在这里 return，
+                    // 定时器就永久消失了，之后即使配置恢复位置也一直静止。
+                    handler.postDelayed(this, interval)
                     return
                 }
                 try {
                     original.onLocationChanged(
-                        FakeLocationFactory.build(cfg, LocationManager.GPS_PROVIDER, null)
+                        FakeLocationFactory.build(cfg, pumpProvider, null)
                     )
                 } catch (_: Throwable) {
                 }
@@ -322,6 +342,7 @@ object LocationManagerHook {
         }
         pumps[proxy] = Pump(handler, runnable)
         handler.postDelayed(runnable, interval)
+        HookLog.v("$LOG_TAG: pump start provider=$pumpProvider interval=${interval}ms")
     }
 
     private fun stopPump(proxy: Any) {
