@@ -74,6 +74,23 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
+        <!-- ==================== 自动化入口 ====================
+             供 Tasker / MacroDroid / AutoX.js 等外部工具通过**显式广播**启停路线模拟。
+             Service 保持 exported=false（不给外部直接拉起模拟的能力），
+             这里只开放两个动作，且只能改「是否跑路线」，改不了坐标与反检测开关。
+
+             调用（显式广播，不受 Android 8+ 隐式广播限制）：
+               am broadcast -a com.mo.fakeloc.automation.START_ROUTE -p com.mo.fakeloc
+               am broadcast -a com.mo.fakeloc.automation.STOP_ROUTE  -p com.mo.fakeloc -->
+        <receiver
+            android:name=".service.AutomationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mo.fakeloc.automation.START_ROUTE" />
+                <action android:name="com.mo.fakeloc.automation.STOP_ROUTE" />
+            </intent-filter>
+        </receiver>
+
         <!-- ==================== 配置通道 ====================
              hook 代码运行在“目标进程”里（uid 与被 hook 应用相同），
              跨 uid 访问 ContentProvider 必须 exported=true。

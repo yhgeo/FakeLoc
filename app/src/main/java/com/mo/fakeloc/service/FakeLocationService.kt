@@ -73,6 +73,41 @@ class FakeLocationService : Service() {
             // 只有显式「开始」才把里程清零；刷新（改配置、进程重建）要接着累计
             ACTION_START -> startEverything(resetDistance = true)
             ACTION_REFRESH, null -> startEverything(resetDistance = false)
+
+            // ---------------------------------------------------------------
+            // 自动化入口（供 Tasker / MacroDroid / AutoX.js 等外部工具调用）
+            //
+            // 刻意**不复用** ACTION_START：那个 action 同时被「坐标模拟」使用
+            // （见 AppState.applyLocation → FakeLocationService.start），
+            // 若在 ACTION_START 里顺手打开路线开关，用户点「应用坐标」时
+            // 会被强行切成路线模式 —— 属于破坏既有功能的副作用。
+            //
+            // 这里新增的两个 action 语义等价于 UI 侧：
+            //   ACTION_START_ROUTE ≈ startRoute()
+            //   ACTION_STOP_ROUTE  ≈ stopRoute() + stopService()
+            //
+            // 调用示例（需 root，因为本 service 声明为 exported=false）：
+            //   am start-foreground-service -n com.mo.fakeloc/.service.FakeLocationService \
+            //      -a com.mo.fakeloc.action.START_ROUTE
+            //   am startservice -n com.mo.fakeloc/.service.FakeLocationService \
+            //      -a com.mo.fakeloc.action.STOP_ROUTE
+            // ---------------------------------------------------------------
+            ACTION_START_ROUTE -> {
+                // 顺序有要求：必须先把 route_running / enabled 落盘，再调 startEverything()。
+                // 后者会重新 ConfigStore.load()，读到的必须是已开启的状态，
+                // 否则会命中 `if (!cfg.enabled) { stopEverything(); return }` 直接退出。
+                ConfigStore.saveRouteRunning(this, true)
+                ConfigStore.save(this, ConfigStore.load(this).copy(enabled = true))
+                startEverything(resetDistance = true)
+            }
+            ACTION_STOP_ROUTE -> {
+                // 同时关总开关：否则 route_running 虽已清零，
+                // 但 MainActivity 启动时仍会因 enabled=true 触发 REFRESH 把服务拉起来。
+                ConfigStore.saveRouteRunning(this, false)
+                ConfigStore.save(this, ConfigStore.load(this).copy(enabled = false))
+                stopEverything()
+                return START_NOT_STICKY
+            }
         }
         return START_STICKY
     }
@@ -462,6 +497,12 @@ class FakeLocationService : Service() {
         const val ACTION_START = "com.mo.fakeloc.action.START"
         const val ACTION_STOP = "com.mo.fakeloc.action.STOP"
         const val ACTION_REFRESH = "com.mo.fakeloc.action.REFRESH"
+
+        /** 自动化入口：启动路线模拟（等价于 UI 的 startRoute）。 */
+        const val ACTION_START_ROUTE = "com.mo.fakeloc.action.START_ROUTE"
+
+        /** 自动化入口：停止路线模拟并关闭总开关（等价于 UI 的 stopRoute + stopService）。 */
+        const val ACTION_STOP_ROUTE = "com.mo.fakeloc.action.STOP_ROUTE"
 
         fun start(ctx: Context) {
             val i = Intent(ctx, FakeLocationService::class.java).setAction(ACTION_START)
