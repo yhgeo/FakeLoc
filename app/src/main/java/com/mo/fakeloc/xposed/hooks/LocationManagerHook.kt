@@ -79,6 +79,19 @@ object LocationManagerHook {
         n += hookAsyncUpdates(clazz)
         n += hookProviderState(clazz)
 
+        // 版本适配用：把 LocationManager 上所有定位相关的方法名列出来。
+        // 微信这类应用会随版本更换 API（8.0.76 就从 requestLocationUpdates 换成了
+        // registerLocationListener），有这份清单能快速判断该补哪个。
+        try {
+            val names = clazz.declaredMethods
+                .map { it.name }
+                .filter { it.contains("ocation") || it.contains("egister") }
+                .distinct()
+                .sorted()
+            HookLog.i("$LOG_TAG: LM methods = $names")
+        } catch (_: Throwable) {
+        }
+
         HookLog.i("$LOG_TAG: LocationManager hooks installed=$n")
         return n
     }
@@ -96,6 +109,15 @@ object LocationManagerHook {
             val orig = p.result as? Location
             if (orig != null && FakeLocationFactory.isMarked(orig)) return@after
             val fake = fakeFor(orig?.provider, orig) ?: return@after
+            p.result = fake
+        },
+        // getLastLocation —— Android 12 (API 31) 新增，和 getLastKnownLocation 语义相同。
+        // 之前只 hook 了 getLastKnownLocation，把这一支漏了：走这个 API 的应用
+        // 会直接拿到真实位置（或 null），不走我们的伪造。方法清单里确认它存在。
+        after(clazz, "getLastLocation", arrayOf(String::class.java)) { p ->
+            val orig = p.result as? Location
+            if (orig != null && FakeLocationFactory.isMarked(orig)) return@after
+            val fake = fakeFor(p.args[0] as? String, orig) ?: return@after
             p.result = fake
         }
     )
@@ -181,6 +203,12 @@ object LocationManagerHook {
             }
         )
 
+        // 关于 registerLocationListener：**Android 14 上不存在这个方法**。
+        // 我一度以为微信 8.0.76 换用了它，但把 LocationManager 的 declaredMethods
+        // 全打出来核对后确认没有（见 install() 里的 LM methods 日志）。
+        // 真正能用的是 requestLocationUpdates 和 getCurrentLocation，都已覆盖。
+        // 如果将来某个 Android 版本真的加了它，那条日志会直接显示出来，再补即可。
+
         return n
     }
 
@@ -204,10 +232,17 @@ object LocationManagerHook {
             if (a is Looper) looper = a
             if (i == 0 && a is String) provider = a
             if (i == 1 && a is Long && a > 0L) minTimeMs = a
-            if (i == 0 && a is LocationRequest) {
+            if (a is LocationRequest) {
                 try {
                     val v = XposedHelpers.callMethod(a, "getIntervalMillis") as? Long
                     if (v != null && v > 0L) minTimeMs = v
+                } catch (_: Throwable) {
+                }
+                // LocationRequest 可能自带 provider（HIGH_ACCURACY 通常没有，由系统挑），
+                // 有就记下来，没有就留空走兜底。
+                try {
+                    val prov = XposedHelpers.callMethod(a, "getProvider") as? String
+                    if (!prov.isNullOrEmpty()) provider = prov
                 } catch (_: Throwable) {
                 }
             }
